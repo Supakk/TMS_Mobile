@@ -3,7 +3,7 @@ import { AppState } from 'react-native';
 import { useSyncExternalStore } from 'react';
 
 import type { Command } from '../domain/commands';
-import { isTripCommand } from '../domain/commands';
+import { asManualCheckIn, isTripCommand } from '../domain/commands';
 import type { Trip } from '../domain/trip';
 import { newKey } from '../device';
 import { makeApi } from './api';
@@ -152,6 +152,16 @@ class OfflineManager {
   /** Try a failed row again now. */
   async retry(id: string) {
     await sqliteStore.updateRow(id, { status: 'pending', error: null, attempts: 0, nextAttemptAt: 0 });
+    await this.refresh();
+    void this.kick();
+  }
+
+  /** A check-in refused for being away from the stop becomes a manual one, with the driver's reason. */
+  async retryAsManualCheckIn(id: string, reason: string) {
+    const row = this.rows.find((r) => r.id === id);
+    const command = row ? asManualCheckIn(row.command, reason) : null;
+    if (!row || !command) return;
+    await sqliteStore.updateRow(id, { command, status: 'pending', error: null, attempts: 0, nextAttemptAt: 0 });
     await this.refresh();
     void this.kick();
   }

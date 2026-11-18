@@ -60,6 +60,13 @@ export function applyCommand(trip: Trip, command: Command): Trip {
   }
 }
 
+/** The same check-in, sent as a manual one with the driver's reason. Null when it is not a check-in or the reason is empty. */
+export function asManualCheckIn(command: Command, reason: string): Command | null {
+  const why = reason.trim();
+  if (command.kind !== 'CHECK_IN' || !why) return null;
+  return { ...command, manualOverride: true, overrideReason: why.slice(0, 1000) };
+}
+
 export type RowState = 'pending' | 'sending' | 'failed' | 'done';
 
 /**

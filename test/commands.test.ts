@@ -1,4 +1,4 @@
-import { applyCommand, effectApplied, isTripCommand, projectTrip, type Command } from '../src/domain/commands';
+import { applyCommand, asManualCheckIn, effectApplied, isTripCommand, projectTrip, type Command } from '../src/domain/commands';
 import { ARRIVAL_GEOFENCE_METERS, distanceMeters, localArrival } from '../src/domain/geo';
 import { stopActions, type Stop, type Trip } from '../src/domain/trip';
 
@@ -164,5 +164,23 @@ describe('local arrival rule', () => {
     expect(localArrival({ ...here, at: now - 6 * 60 * 1000 }, stop(1), now)).toMatchObject({ gpsFresh: false, canCheckIn: false });
     expect(localArrival(null, stop(1), now).gpsFresh).toBe(false);
     expect(ARRIVAL_GEOFENCE_METERS).toBe(200);
+  });
+});
+
+describe('manual check-in after a refusal', () => {
+  it('turns a refused check-in into a manual one with the reason', () => {
+    const next = asManualCheckIn(checkIn('s1'), '  GPS was off  ');
+    expect(next).toMatchObject({ kind: 'CHECK_IN', stopId: 's1', manualOverride: true, overrideReason: 'GPS was off' });
+  });
+
+  it('refuses an empty reason and any command that is not a check-in', () => {
+    expect(asManualCheckIn(checkIn('s1'), '   ')).toBeNull();
+    expect(asManualCheckIn(checkOut('s1'), 'why')).toBeNull();
+  });
+
+  it('keeps the time the driver pressed the button', () => {
+    const original = checkIn('s1');
+    const next = asManualCheckIn(original, 'why');
+    expect(next && 'occurredAt' in next ? next.occurredAt : null).toBe('occurredAt' in original ? original.occurredAt : 'x');
   });
 });

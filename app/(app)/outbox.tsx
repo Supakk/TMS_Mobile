@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { formatDateTime } from '../../src/dates';
@@ -7,7 +8,7 @@ import { offline, useOutboxRows } from '../../src/offline/manager';
 import type { OutboxRow } from '../../src/offline/types';
 import { useSettings } from '../../src/settings/settings';
 import { colors, spacing } from '../../src/theme';
-import { Badge, Button, Card, Screen } from '../../src/ui';
+import { Badge, Button, Card, Field, Screen } from '../../src/ui';
 
 function reason(row: OutboxRow): string | null {
   if (!row.error) return null;
@@ -18,6 +19,41 @@ function reason(row: OutboxRow): string | null {
   return row.error.detail ? `${t('failedRejected')} ${row.error.detail}` : t('failedRejected');
 }
 
+/** A check-in the server refused because the vehicle was not at the stop: the same command would be refused again. */
+const needsManual = (row: OutboxRow) => row.command.kind === 'CHECK_IN' && row.error?.code === 'GEOFENCE_REQUIRED';
+
+function FailedActions({ row }: { row: OutboxRow }) {
+  const [manual, setManual] = useState(false);
+  const [why, setWhy] = useState('');
+
+  const confirmDiscard = () =>
+    Alert.alert(t('discardTitle'), t('discardBody'), [
+      { text: t('cancel'), style: 'cancel' },
+      { text: t('discard'), style: 'destructive', onPress: () => void offline.discard(row.id) },
+    ]);
+
+  if (needsManual(row)) {
+    return (
+      <View style={styles.actions}>
+        {manual ? <Field label={t('manualReason')} value={why} onChangeText={setWhy} multiline /> : null}
+        <Button
+          title={t('manualCheckIn')}
+          disabled={manual && !why.trim()}
+          onPress={() => (manual ? void offline.retryAsManualCheckIn(row.id, why) : setManual(true))}
+        />
+        <Button title={t('discard')} variant="secondary" onPress={confirmDiscard} />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.actions}>
+      <Button title={t('retryNow')} onPress={() => void offline.retry(row.id)} />
+      <Button title={t('discard')} variant="secondary" onPress={confirmDiscard} />
+    </View>
+  );
+}
+
 /** Every command that has not been accepted yet. A failed one blocks the ones after it until the driver decides. */
 export default function OutboxScreen() {
   const accountId = useAccountId();
@@ -26,15 +62,9 @@ export default function OutboxScreen() {
     .filter((r) => r.accountId === accountId && r.status !== 'done')
     .sort((a, b) => a.seq - b.seq);
 
-  const confirmDiscard = (row: OutboxRow) =>
-    Alert.alert(t('discardTitle'), t('discardBody'), [
-      { text: t('cancel'), style: 'cancel' },
-      { text: t('discard'), style: 'destructive', onPress: () => void offline.discard(row.id) },
-    ]);
-
   return (
     <Screen edges={[]}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {rows.length === 0 ? <Text style={styles.meta}>{t('outboxEmpty')}</Text> : null}
         {rows.map((row) => (
           <Card key={row.id}>
@@ -46,12 +76,7 @@ export default function OutboxScreen() {
             </View>
             <Text style={styles.meta}>{formatDateTime(new Date(row.createdAt).toISOString(), era)}</Text>
             {reason(row) ? <Text style={styles.error}>{reason(row)}</Text> : null}
-            {row.status === 'failed' ? (
-              <View style={styles.actions}>
-                <Button title={t('retryNow')} onPress={() => void offline.retry(row.id)} />
-                <Button title={t('discard')} variant="secondary" onPress={() => confirmDiscard(row)} />
-              </View>
-            ) : null}
+            {row.status === 'failed' ? <FailedActions row={row} /> : null}
           </Card>
         ))}
       </ScrollView>

@@ -6,7 +6,7 @@ Built with Expo (SDK 58), React Native, TypeScript, Expo Router and TanStack Que
 
 ## What works in this version
 
-- Company code -> tenant -> email and password sign-in. The token is opaque, has an expiry and is kept in secure storage. There is no refresh: on expiry or any 401 the session is cleared.
+- Company code -> tenant -> email and password sign-in. The token is opaque, lasts 12 hours and is kept in secure storage. It is renewed with `POST /mobile/auth/refresh` while it still works (inside its last two hours, on coming back to the app, and every ten minutes). The backend revokes the old token at once, so a 401 only ends the session when it belongs to the token the app holds now; a request sent with the old token a moment before a refresh does not sign the driver out. An expired token cannot be renewed: the driver signs in again, and queued work waits and is sent after that.
 - Trip list from `GET /mobile/me/sync` (pull to refresh, refresh on app foreground and every minute, offline banner).
 - Trip detail: accept or reject a trip, start, complete (blocked until every stop has proof of delivery).
 - Stop screen: ordered stops, arrival status from the GPS geofence, check-in (with a manual override and reason), check-out, hand-off to Google Maps.
@@ -79,6 +79,7 @@ The sender (`src/offline/engine.ts`) runs when a row is made, when the connectio
 - GPS samples are written to SQLite and sent first, in batches of up to 100, so the server can judge a later check-in by where the vehicle was.
 - The app branches on the server's stable `code` (Problem Details), never on the English text. `VERSION_CONFLICT`, `STOP_ALREADY_ARRIVED` and `POD_ALREADY_CAPTURED` make it re-read the trip and look; the other codes are shown to the driver in Thai or English (see `code_*` in `src/i18n.ts`).
 - A GPS batch is split only on a 400 with `INVALID_REQUEST`, until the one bad point stands alone and only it is dropped. Any other refusal (403, 404, 409, 412, 422, or a 400 without that code) is about the trip, not a point: nothing is deleted, and the trip is held back with a growing wait (30 s doubling to 1 h). Samples older than 3 days are discarded so a trip that never accepts them cannot fill the phone. A 429 or 5xx is retried later.
+- A check-in the server refuses with `GEOFENCE_REQUIRED` (the vehicle was not at the stop) cannot succeed as it is, so the Unsent work screen offers "Check in manually": the same command, with the time it was pressed, is sent again as a manual check-in with the driver's reason.
 - A phone that ran an earlier build may hold outbox rows with the same order number. On opening, the numbers are made distinct (keeping the order) before the unique index is built, so the database still opens.
 - A proof photo is copied into the app's documents folder and uploaded as its own row with a stable `clientDocumentId`; it does not hold up the check-out.
 - Event times (`occurredAt`) are taken on the phone when the button is pressed.
