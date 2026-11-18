@@ -3,6 +3,7 @@
     "name": "TMS_KM_Mobile",
     "slug": "TMS_KM_Mobile",
     "version": "1.0.0",
+    "scheme": "tmskm",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -20,6 +21,11 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-localization"
+    ]
   }
 }
