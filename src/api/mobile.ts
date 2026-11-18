@@ -30,6 +30,12 @@ export async function login(tenantId: string, email: string, password: string): 
   return data;
 }
 
+/** Swaps a token that is still valid for a new one; the old one is revoked at once. */
+export async function refresh(token: string): Promise<LoginView> {
+  const { data } = await request<LoginView>('/mobile/auth/refresh', { method: 'POST', token });
+  return data;
+}
+
 export async function logout(token: string): Promise<void> {
   await request<void>('/mobile/auth/logout', { method: 'POST', token });
 }

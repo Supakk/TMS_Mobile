@@ -38,7 +38,8 @@ type RequestOptions = {
   idempotencyKey?: string;
 };
 
-type Unauthorized = () => void;
+/** Gets the token the failed request carried, so the handler can tell an old token from the current one. */
+type Unauthorized = (usedToken: string) => void;
 let onUnauthorized: Unauthorized | null = null;
 
 /** The session store registers itself here so any 401 clears the session. */
@@ -86,7 +87,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     } catch {
       problem = null;
     }
-    if (response.status === 401 && options.token) onUnauthorized?.();
+    if (response.status === 401 && options.token) onUnauthorized?.(options.token);
     throw new ApiError(response.status, problem, requestId);
   }
 
