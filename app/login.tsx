@@ -2,14 +2,13 @@ import { useMutation } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { login } from '../src/api/mobile';
 import { useSession } from '../src/auth/session';
 import { describeError } from '../src/errors';
 import { t } from '../src/i18n';
 import { colors, spacing } from '../src/theme';
-import { Button, ErrorText, Field } from '../src/ui';
+import { Button, Card, ErrorText, Field, Screen } from '../src/ui';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -32,11 +31,12 @@ export default function LoginScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <Screen edges={['top', 'bottom']}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Text style={styles.company}>{tenant?.displayName}</Text>
           <Text style={styles.title}>{t('loginTitle')}</Text>
+          <Card>
           <Field
             label={t('email')}
             value={email}
@@ -58,10 +58,11 @@ export default function LoginScreen() {
           />
           <ErrorText message={error} />
           <Button title={t('signIn')} onPress={submit} busy={signInMutation.isPending} />
+          </Card>
           <Button title={t('changeCompany')} variant="secondary" onPress={() => router.replace('/company')} />
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </Screen>
   );
 }
 
@@ -70,5 +71,5 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: { padding: spacing.lg, gap: spacing.md, flexGrow: 1, justifyContent: 'center' },
   company: { color: colors.muted, fontSize: 16 },
-  title: { color: colors.accent, fontSize: 28, fontWeight: '700' },
+  title: { color: colors.text, fontSize: 30, fontWeight: '700' },
 });

@@ -20,7 +20,7 @@ export default function TabsLayout() {
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.muted,
         tabBarLabelStyle: { fontSize: 13, fontWeight: '600' },
-        tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border, minHeight: 60 },
+        tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.hairline, minHeight: 64, paddingTop: 6 },
       }}
     >
       <Tabs.Screen name="home" options={{ title: t('tabTrips'), tabBarIcon: glyph('▤') }} />

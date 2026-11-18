@@ -2,14 +2,13 @@ import { useMutation } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { resolveTenant } from '../src/api/mobile';
 import { useSession } from '../src/auth/session';
 import { describeError } from '../src/errors';
 import { t } from '../src/i18n';
 import { colors, spacing } from '../src/theme';
-import { Button, ErrorText, Field } from '../src/ui';
+import { Button, Card, ErrorText, Field, Screen } from '../src/ui';
 
 export default function CompanyScreen() {
   const router = useRouter();
@@ -33,11 +32,12 @@ export default function CompanyScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <Screen edges={['top', 'bottom']}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Text style={styles.title}>{t('appName')}</Text>
           <Text style={styles.hint}>{t('companyHint')}</Text>
+          <Card>
           <Field
             label={t('companyCode')}
             value={code}
@@ -49,9 +49,10 @@ export default function CompanyScreen() {
           />
           <ErrorText message={error} />
           <Button title={t('continue')} onPress={submit} busy={resolve.isPending} />
+          </Card>
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </Screen>
   );
 }
 
@@ -59,6 +60,6 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.page },
   flex: { flex: 1 },
   content: { padding: spacing.lg, gap: spacing.md, flexGrow: 1, justifyContent: 'center' },
-  title: { color: colors.accent, fontSize: 28, fontWeight: '700' },
+  title: { color: colors.text, fontSize: 30, fontWeight: '700' },
   hint: { color: colors.muted, fontSize: 16 },
 });
