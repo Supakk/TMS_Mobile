@@ -1,7 +1,6 @@
 import { useNetworkState } from 'expo-network';
 import { useRouter } from 'expo-router';
 import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { TripSummary } from '../../../src/api/trips';
 import { useSession } from '../../../src/auth/session';
@@ -10,7 +9,8 @@ import { t } from '../../../src/i18n';
 import { useSettings } from '../../../src/settings/settings';
 import { useSync } from '../../../src/hooks/useTrips';
 import { colors, spacing } from '../../../src/theme';
-import { Banner, Button, Card, StatusBadge } from '../../../src/ui';
+import { Button, Card, StatusBadge, Screen } from '../../../src/ui';
+import { SyncNotice } from '../../../src/components/SyncNotice';
 
 function TripCard({ trip }: { trip: TripSummary }) {
   const router = useRouter();
@@ -39,24 +39,22 @@ function TripCard({ trip }: { trip: TripSummary }) {
 export default function HomeScreen() {
   const { session } = useSession();
   const network = useNetworkState();
-  const { data, isLoading, isRefetching, isError, refetch } = useSync();
-  const offline = network.isInternetReachable === false || isError;
+  const { trips, isLoading, isRefetching, isError, refetch, fromCache } = useSync();
+  const offline = network.isInternetReachable === false || fromCache;
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <Screen>
       <View style={styles.header}>
         <Text style={styles.title}>{t('homeTitle')}</Text>
         <Text style={styles.hint}>
           {t('welcome')} {session?.account.displayName}
         </Text>
       </View>
-      {offline ? (
-        <View style={styles.pad}>
-          <Banner message={t('offline')} />
-        </View>
-      ) : null}
+      <View style={styles.pad}>
+        <SyncNotice offline={offline} />
+      </View>
       <FlatList
-        data={data?.trips ?? []}
+        data={trips}
         keyExtractor={(trip) => trip.id}
         renderItem={({ item }) => <TripCard trip={item} />}
         contentContainerStyle={styles.list}
@@ -68,7 +66,7 @@ export default function HomeScreen() {
           </View>
         }
       />
-    </SafeAreaView>
+    </Screen>
   );
 }
 
@@ -76,7 +74,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.page },
   header: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, gap: spacing.xs },
   pad: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
-  title: { color: colors.accent, fontSize: 28, fontWeight: '700' },
+  title: { color: colors.text, fontSize: 30, fontWeight: '700' },
   hint: { color: colors.muted, fontSize: 16 },
   list: { padding: spacing.lg, gap: spacing.md, flexGrow: 1 },
   empty: { paddingTop: spacing.xl, gap: spacing.md },

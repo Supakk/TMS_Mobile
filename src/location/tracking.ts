@@ -1,21 +1,26 @@
 import * as Location from 'expo-location';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
-import { ApiError } from '../api/client';
-import { sendTracking, type TrackingItem } from '../api/trips';
+import type { Fix } from '../domain/geo';
 import { newKey } from '../device';
+import { offline } from '../offline/manager';
 
-// Foreground tracking only: samples are batched in memory and sent while the app is open.
-// Samples are kept until the server accepts them. Background location and a durable queue come with the outbox.
+// Foreground tracking. Every sample is written to the phone's database at once and the offline engine sends
+// them in batches when there is a connection, so a drive through a dead zone loses nothing.
+// Background location is a later step.
 
 const MAX_ACCURACY_METERS = 100;
 const SAMPLE_INTERVAL_MS = 15_000;
 const SAMPLE_DISTANCE_METERS = 25;
-const FLUSH_INTERVAL_MS = 30_000;
-const MAX_BATCH = 100;
-const MAX_BUFFER = 2_000;
 
 export type LocationState = 'unknown' | 'granted' | 'denied';
+
+let lastFix: Fix | null = null;
+
+/** The latest good position, for the offline arrival check. */
+export function getLastFix(): Fix | null {
+  return lastFix;
+}
 
 export function useLocationPermission() {
   const [state, setState] = useState<LocationState>('unknown');
@@ -34,29 +39,8 @@ export function useLocationPermission() {
   return { state, request };
 }
 
-/** While `active`, watches the position and posts it in batches for the trip. */
-export function useTripTracking(token: string, tripId: string, active: boolean) {
-  const buffer = useRef<TrackingItem[]>([]);
-  const flushing = useRef(false);
-
-  const flush = useCallback(async () => {
-    if (flushing.current || buffer.current.length === 0) return;
-    flushing.current = true;
-    const batch = buffer.current.slice(0, MAX_BATCH);
-    try {
-      await sendTracking({ token }, tripId, batch);
-      buffer.current = buffer.current.slice(batch.length);
-    } catch (e) {
-      // A network failure keeps the samples for the next flush. A 4xx would fail again forever
-      // (for example an implausible GPS jump), so that batch is dropped.
-      if (e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 401 && e.status !== 429) {
-        buffer.current = buffer.current.slice(batch.length);
-      }
-    } finally {
-      flushing.current = false;
-    }
-  }, [token, tripId]);
-
+/** While `active`, watches the position and stores each good sample for the trip. */
+export function useTripTracking(accountId: string, tripId: string, active: boolean) {
   useEffect(() => {
     if (!active) return;
     let subscription: Location.LocationSubscription | null = null;
@@ -72,29 +56,29 @@ export function useTripTracking(token: string, tripId: string, active: boolean) 
         (position) => {
           const { latitude, longitude, accuracy, speed } = position.coords;
           if (accuracy !== null && accuracy > MAX_ACCURACY_METERS) return;
-          buffer.current.push({
-            clientEventId: newKey(),
-            eventType: 'GPS',
-            occurredAt: new Date(position.timestamp).toISOString(),
-            latitude,
-            longitude,
-            // expo-location reports m/s, the API wants km/h; a negative value means unknown.
-            speedKph: speed !== null && speed >= 0 ? Math.min(250, Math.round(speed * 3.6 * 10) / 10) : null,
-          });
-          if (buffer.current.length > MAX_BUFFER) buffer.current.splice(0, buffer.current.length - MAX_BUFFER);
-          if (buffer.current.length >= MAX_BATCH) void flush();
+          lastFix = { latitude, longitude, at: position.timestamp };
+          void offline.addSamples([
+            {
+              clientEventId: newKey(),
+              tripId,
+              accountId,
+              eventType: 'GPS',
+              occurredAt: new Date(position.timestamp).toISOString(),
+              latitude,
+              longitude,
+              // expo-location reports m/s, the API wants km/h; a negative value means unknown.
+              speedKph: speed !== null && speed >= 0 ? Math.min(250, Math.round(speed * 3.6 * 10) / 10) : null,
+            },
+          ]);
         },
       );
       if (cancelled) sub.remove();
       else subscription = sub;
     })().catch(() => undefined);
 
-    const timer = setInterval(() => void flush(), FLUSH_INTERVAL_MS);
     return () => {
       cancelled = true;
       subscription?.remove();
-      clearInterval(timer);
-      void flush();
     };
-  }, [active, flush]);
+  }, [active, accountId, tripId]);
 }

@@ -15,7 +15,9 @@ Built with Expo (SDK 58), React Native, TypeScript, Expo Router and TanStack Que
 - Foreground GPS tracking while a trip is on the road, sent in batches of up to 100.
 - Thai and English, a Buddhist-era or Christian-era date setting, and a settings tab.
 
-Not built yet: the offline outbox and local snapshot, background location, SignalR live updates, push notifications (FCM), signature capture, iOS testing. See the roadmap below.
+- **Works without a signal.** Every step the driver takes (accept, start, check in, proof of delivery with photo, check out, complete, problems, notes) is saved on the phone first and sent when the connection returns. See "Offline" below.
+
+Not built yet: background location, SignalR live updates, push notifications (FCM), signature capture, barcode scanning, iOS testing. See the roadmap below.
 
 ## Run it
 
@@ -48,6 +50,7 @@ app/                  Expo Router screens (every file is a route)
   (app)/(tabs)/                   main pages with bottom navigation: home, settings
   (app)/trips/[tripId]/           trip, stop, proof of delivery, problem or note
 src/
+  offline/    snapshot and outbox: engine (sender), SQLite store, manager, repo
   api/        client.ts is the only place that builds headers; mobile.ts (sign-in), trips.ts (driver calls)
   auth/       session and secure storage
   domain/     pure trip rules (stop order, allowed actions, completion guard)
@@ -59,6 +62,28 @@ src/
 test/         unit tests (*.test.ts)
 ```
 
+## Offline
+
+Two parts, no general sync engine (`src/offline/`):
+
+- **Snapshot.** Every good answer from the server (the trip list and each trip) is saved in SQLite. When the network fails or the server errors, the app shows the saved copy and says so. Trips are saved when the list loads, so they open offline.
+- **Outbox.** A driver action becomes a command row in SQLite. The screen shows the server's copy of the trip with the waiting commands applied on top (`src/domain/commands.ts`), so the next stop opens and the buttons update without a signal. The server's copy is never overwritten by a guess.
+
+The sender (`src/offline/engine.ts`) runs when a row is made, when the connection returns, when the app comes to the front, and every 30 seconds:
+
+- One `Idempotency-Key` per row, made with the row and reused on every retry.
+- The `If-Match` version is never stored. It is read from the latest server copy when a row is sent, and each response replaces that copy before the next row.
+- Per trip, one command at a time, in order. A row the server refuses is marked failed with the reason and blocks the rows behind it until the driver retries or discards it (Settings > Unsent work). Other trips are not blocked.
+- A 412 is not a failure yet: the trip is re-read, and if it already shows the step (a lost answer to check-in or check-out, which have no idempotency key) the row counts as done.
+- A time-out keeps the row and stops the run; sending waits with a backoff. A 401 stops everything and keeps every row; after the same driver signs in again, sending resumes.
+- GPS samples are written to SQLite and sent first, in batches of up to 100, so the server can judge a later check-in by where the vehicle was.
+- A proof photo is copied into the app's documents folder and uploaded as its own row with a stable `clientDocumentId`; it does not hold up the check-out.
+- Event times (`occurredAt`) are taken on the phone when the button is pressed.
+- Check-in offline uses the phone's own position against the backend's 200 m rule; the server still decides when the command arrives.
+- Another driver's rows are never sent under this driver's name; they are offered for discard. Their saved trips are cleared when a different driver signs in.
+
+Known limits: problem reports and notes have no idempotency key on the backend, so a lost answer followed by a retry can send one twice. Tokens are never stored in SQLite (secure storage only).
+
 ## Rules the app follows
 
 - It calls `/api/mobile/*` only, never the back-office routes.
@@ -69,8 +94,8 @@ test/         unit tests (*.test.ts)
 
 ## Roadmap
 
-1. Local snapshot and sequential outbox (one command at a time per trip, in order) with an offline indicator.
-2. Durable GPS queue and background location.
+1. Background location (GPS samples are already stored durably).
+2. Barcode scanning of loads, queued the same way.
 3. SignalR (`/hubs/tracking`) with `/me/sync` as the fallback.
 4. Push notifications and hardening.
 5. iOS.

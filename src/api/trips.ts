@@ -126,6 +126,10 @@ export async function checkOut(auth: Versioned, tripId: string, stopId: string, 
   ).data;
 }
 
+export async function getProofId({ token }: Auth, tripId: string, stopId: string): Promise<string> {
+  return (await request<Proof>(`${stop(tripId, stopId)}/proof-of-delivery`, { token })).data.id;
+}
+
 export async function captureProof(
   auth: Keyed,
   tripId: string,
