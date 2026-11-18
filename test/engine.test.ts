@@ -82,6 +82,9 @@ class FakeStore implements OfflineStore {
   async deleteSamples(ids: string[]) {
     this.samples = this.samples.filter((s) => !ids.includes(s.clientEventId));
   }
+  async deleteSamplesBefore(accountId: string, iso: string) {
+    this.samples = this.samples.filter((s) => !(s.accountId === accountId && s.occurredAt < iso));
+  }
   async sampleTripIds(accountId: string) {
     return [...new Set(this.samples.filter((s) => s.accountId === accountId).map((s) => s.tripId))];
   }
@@ -109,7 +112,8 @@ async function enqueue(store: FakeStore, command: Command, patch: Partial<Outbox
 }
 
 const timeout = () => new UnknownOutcomeError('req');
-const http = (status: number, detail?: string) => new ApiError(status, detail ? { detail } : null, 'req');
+const http = (status: number, detail?: string, code?: string) =>
+  new ApiError(status, detail || code ? { detail, code } : null, 'req');
 
 /** An API that behaves like the server: it keeps a trip, checks If-Match and bumps the version. */
 function fakeServer(initial: Trip) {
@@ -487,7 +491,7 @@ describe('GPS samples', () => {
     expect(store.samples).toHaveLength(0);
   });
 
-  it('keeps the samples when offline and drops a batch the server refuses for good', async () => {
+  it('keeps the samples when offline and drops a single point the server calls invalid', async () => {
     const server = fakeServer(baseTrip());
     const store = new FakeStore();
     await store.saveTrip(server.trip);
@@ -498,7 +502,7 @@ describe('GPS samples', () => {
     expect(await engine.run(ACCOUNT)).toBe('offline');
     expect(store.samples).toHaveLength(1);
 
-    server.api.failNext(http(400, 'implausible GPS jump'));
+    server.api.failNext(http(400, 'implausible GPS jump', 'INVALID_REQUEST'));
     await engine.run(ACCOUNT);
     expect(store.samples).toHaveLength(0);
   });
@@ -523,7 +527,7 @@ describe('GPS batch with one bad point', () => {
     await store.addSamples(['a', 'b', 'bad', 'd', 'e'].map(point));
     const sent: string[] = [];
     server.api.sendTracking = async (_id, items) => {
-      if (items.some((i) => i.clientEventId === 'bad')) throw http(400, 'implausible GPS jump');
+      if (items.some((i) => i.clientEventId === 'bad')) throw http(400, 'implausible GPS jump', 'INVALID_REQUEST');
       sent.push(...items.map((i) => i.clientEventId));
     };
     await engineFor(store, server.api).run(ACCOUNT);
@@ -540,5 +544,169 @@ describe('order numbers', () => {
     );
     const numbers = store.rows.map((r) => r.seq);
     expect(new Set(numbers).size).toBe(5);
+  });
+});
+
+describe('GPS refused for a reason that is not a bad point', () => {
+  const sample = (id: string, tripId = 't1', occurredAt = 'now'): TrackingSample => ({
+    clientEventId: id,
+    tripId,
+    accountId: ACCOUNT,
+    eventType: 'GPS',
+    occurredAt,
+    latitude: 13,
+    longitude: 100,
+    speedKph: 0,
+  });
+
+  it.each([
+    [403, 'ACCESS_DENIED'],
+    [404, 'RESOURCE_NOT_FOUND'],
+    [409, 'REQUEST_CONFLICT'],
+    [412, 'VERSION_CONFLICT'],
+    [422, 'BUSINESS_RULE_REJECTED'],
+    [400, undefined], // a 400 without the code is not proof of a bad point either
+  ])('keeps every sample on a %s and does not split the batch', async (status, code) => {
+    const server = fakeServer(baseTrip());
+    const store = new FakeStore();
+    await store.addSamples(['a', 'b', 'c'].map((id) => sample(id)));
+    const attempts: number[] = [];
+    server.api.sendTracking = async (_id, items) => {
+      attempts.push(items.length);
+      throw http(status, 'refused', code);
+    };
+    await engineFor(store, server.api).run(ACCOUNT);
+    expect(attempts).toEqual([3]); // one try, no halving
+    expect(store.samples).toHaveLength(3);
+  });
+
+  it('does not ask again until the wait is over, then waits longer each time', async () => {
+    const server = fakeServer(baseTrip());
+    const store = new FakeStore();
+    await store.addSamples([sample('a')]);
+    let asked = 0;
+    server.api.sendTracking = async () => {
+      asked += 1;
+      throw http(404, 'gone', 'RESOURCE_NOT_FOUND');
+    };
+    const engine = engineFor(store, server.api);
+
+    await engine.run(ACCOUNT);
+    await engine.run(ACCOUNT); // woken again at once: held back
+    await engine.run(ACCOUNT);
+    expect(asked).toBe(1);
+
+    clock += 31_000; // the first wait is 30 s
+    await engine.run(ACCOUNT);
+    expect(asked).toBe(2);
+
+    clock += 31_000; // the second wait is 60 s: not over yet
+    await engine.run(ACCOUNT);
+    expect(asked).toBe(2);
+
+    clock += 31_000;
+    await engine.run(ACCOUNT);
+    expect(asked).toBe(3);
+    expect(store.samples).toHaveLength(1); // still kept
+  });
+
+  it('holds back only the refused trip and sends the others', async () => {
+    const server = fakeServer(baseTrip());
+    const store = new FakeStore();
+    await store.addSamples([sample('a', 'gone'), sample('b', 't1')]);
+    const sent: string[] = [];
+    server.api.sendTracking = async (tripId, items) => {
+      if (tripId === 'gone') throw http(404, 'gone', 'RESOURCE_NOT_FOUND');
+      sent.push(...items.map((i) => i.clientEventId));
+    };
+    await engineFor(store, server.api).run(ACCOUNT);
+    expect(sent).toEqual(['b']);
+    expect(store.samples.map((s) => s.clientEventId)).toEqual(['a']);
+  });
+
+  it('lets trip commands go on while the GPS of a trip is held back', async () => {
+    const server = fakeServer(baseTrip());
+    const store = new FakeStore();
+    await store.saveTrip(server.trip);
+    await store.addSamples([sample('a')]);
+    await enqueue(store, { kind: 'START', occurredAt: 't' });
+    server.api.sendTracking = async () => {
+      throw http(422, 'no', 'BUSINESS_RULE_REJECTED');
+    };
+    await engineFor(store, server.api).run(ACCOUNT);
+    expect(statuses(store)).toEqual(['START:done']);
+  });
+
+  it('keeps the samples when the server is busy (429)', async () => {
+    const server = fakeServer(baseTrip());
+    const store = new FakeStore();
+    await store.addSamples([sample('a')]);
+    server.api.sendTracking = async () => {
+      throw http(429);
+    };
+    await engineFor(store, server.api).run(ACCOUNT);
+    expect(store.samples).toHaveLength(1);
+  });
+
+  it('throws away samples older than three days so a refused trip cannot fill the phone', async () => {
+    const server = fakeServer(baseTrip());
+    const store = new FakeStore();
+    clock = Date.UTC(2026, 10, 18);
+    const old = new Date(clock - 4 * 24 * 3600 * 1000).toISOString();
+    const recent = new Date(clock - 3600 * 1000).toISOString();
+    await store.addSamples([sample('old', 't1', old), sample('recent', 't1', recent)]);
+    server.api.sendTracking = async () => {
+      throw timeout();
+    };
+    await engineFor(store, server.api).run(ACCOUNT);
+    expect(store.samples.map((s) => s.clientEventId)).toEqual(['recent']);
+  });
+});
+
+describe('machine-readable codes', () => {
+  it('stores the server code on a failed row so the screen can translate it', async () => {
+    const server = fakeServer(baseTrip({ status: 'IN_TRANSIT' }));
+    const store = new FakeStore();
+    await store.saveTrip(server.trip);
+    await enqueue(store, { kind: 'CHECK_IN', stopId: 's1', occurredAt: 't', manualOverride: false, overrideReason: null });
+    server.api.failNext(http(422, 'A recent GPS position is required', 'GEOFENCE_REQUIRED'));
+    await engineFor(store, server.api).run(ACCOUNT);
+    expect(store.rows[0].error).toEqual({ code: 'GEOFENCE_REQUIRED', detail: 'A recent GPS position is required' });
+  });
+
+  it('treats "already arrived" as a reason to look again, and counts the row as done when it is true', async () => {
+    const arrived = baseTrip({
+      status: 'IN_TRANSIT',
+      version: 'v9',
+      stops: [stop(1, { status: 'ARRIVED', actualArrivalAt: 'earlier' }), stop(2)],
+    });
+    const server = fakeServer(arrived);
+    const store = new FakeStore();
+    // Same version as the server, so there is no 412: the code alone sends it to look again.
+    await store.saveTrip(baseTrip({ status: 'IN_TRANSIT', version: 'v9' }));
+    await enqueue(store, { kind: 'CHECK_IN', stopId: 's1', occurredAt: 't', manualOverride: false, overrideReason: null });
+    server.api.failNext(http(422, 'already', 'STOP_ALREADY_ARRIVED'));
+    await engineFor(store, server.api).run(ACCOUNT);
+    expect(statuses(store)).toEqual(['CHECK_IN:done']);
+  });
+
+  it('treats VERSION_CONFLICT like a 412: re-read and retry once', async () => {
+    const server = fakeServer(baseTrip({ status: 'IN_TRANSIT', version: 'v7' }));
+    const store = new FakeStore();
+    await store.saveTrip(baseTrip({ status: 'IN_TRANSIT', version: 'v7' }));
+    await enqueue(store, { kind: 'CHECK_IN', stopId: 's1', occurredAt: 't', manualOverride: false, overrideReason: null });
+    server.api.failNext(http(409, 'conflict', 'VERSION_CONFLICT'));
+    await engineFor(store, server.api).run(ACCOUNT);
+    expect(statuses(store)).toEqual(['CHECK_IN:done']);
+  });
+
+  it('retries a busy server (429) on a row later instead of failing it', async () => {
+    const server = fakeServer(baseTrip());
+    const store = new FakeStore();
+    await store.saveTrip(server.trip);
+    await enqueue(store, { kind: 'START', occurredAt: 't' });
+    server.api.failNext(http(429));
+    await engineFor(store, server.api).run(ACCOUNT);
+    expect(statuses(store)).toEqual(['START:pending']);
   });
 });

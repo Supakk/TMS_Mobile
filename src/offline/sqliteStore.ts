@@ -9,44 +9,70 @@ import type { OfflineStore, OutboxRow, TrackingSample } from './types';
 
 let opened: Promise<SQLite.SQLiteDatabase> | null = null;
 
+/** Gives every row a distinct number 1..n in the order (seq, rowid). Run only when duplicates exist. */
+export const REPAIR_SEQ = `
+  DROP TABLE IF EXISTS seq_fix;
+  CREATE TEMP TABLE seq_fix AS
+    SELECT o1.id AS id,
+           (SELECT COUNT(*) FROM outbox o2
+            WHERE o2.seq < o1.seq OR (o2.seq = o1.seq AND o2.rowid <= o1.rowid)) AS n
+    FROM outbox o1;
+  UPDATE outbox SET seq = (SELECT n FROM seq_fix WHERE seq_fix.id = outbox.id);
+  DROP TABLE seq_fix;
+`;
+
+/** Creates the tables and brings an older database up to date. Exported so it can be tried on an old copy. */
+export async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
+    await db.execAsync(`
+    PRAGMA journal_mode = WAL;
+    CREATE TABLE IF NOT EXISTS outbox (
+      id TEXT PRIMARY KEY NOT NULL,
+      account_id TEXT NOT NULL,
+      trip_id TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      command TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL,
+      status TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at INTEGER NOT NULL DEFAULT 0,
+      error TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS trips (
+      id TEXT PRIMARY KEY NOT NULL,
+      json TEXT NOT NULL,
+      saved_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS meta (
+      key TEXT PRIMARY KEY NOT NULL,
+      json TEXT NOT NULL,
+      saved_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS tracking (
+      client_event_id TEXT PRIMARY KEY NOT NULL,
+      account_id TEXT NOT NULL,
+      trip_id TEXT NOT NULL,
+      occurred_at TEXT NOT NULL,
+      json TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS tracking_order ON tracking (account_id, trip_id, occurred_at);
+  `);
+  // A phone that ran an earlier build can hold rows with the same order number (the old build took "highest + 1"
+  // outside the write). The unique index would refuse to build on them and the database would not open, so the
+  // numbers are first made distinct: rows keep their relative order (by number, then by when they were stored).
+  await db.withTransactionAsync(async () => {
+    const dup = await db.getFirstAsync<{ n: number }>(
+      'SELECT 1 AS n FROM outbox GROUP BY seq HAVING COUNT(*) > 1 LIMIT 1',
+    );
+    if (dup) await db.execAsync(REPAIR_SEQ);
+    await db.execAsync('DROP INDEX IF EXISTS outbox_seq; CREATE UNIQUE INDEX IF NOT EXISTS outbox_seq_unique ON outbox (seq);');
+  });
+}
+
 function open(): Promise<SQLite.SQLiteDatabase> {
   opened ??= (async () => {
     const db = await SQLite.openDatabaseAsync('tms.db');
-    await db.execAsync(`
-      PRAGMA journal_mode = WAL;
-      CREATE TABLE IF NOT EXISTS outbox (
-        id TEXT PRIMARY KEY NOT NULL,
-        account_id TEXT NOT NULL,
-        trip_id TEXT NOT NULL,
-        seq INTEGER NOT NULL,
-        command TEXT NOT NULL,
-        idempotency_key TEXT NOT NULL,
-        status TEXT NOT NULL,
-        attempts INTEGER NOT NULL DEFAULT 0,
-        next_attempt_at INTEGER NOT NULL DEFAULT 0,
-        error TEXT,
-        created_at INTEGER NOT NULL
-      );
-      CREATE UNIQUE INDEX IF NOT EXISTS outbox_seq_unique ON outbox (seq);
-      CREATE TABLE IF NOT EXISTS trips (
-        id TEXT PRIMARY KEY NOT NULL,
-        json TEXT NOT NULL,
-        saved_at INTEGER NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS meta (
-        key TEXT PRIMARY KEY NOT NULL,
-        json TEXT NOT NULL,
-        saved_at INTEGER NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS tracking (
-        client_event_id TEXT PRIMARY KEY NOT NULL,
-        account_id TEXT NOT NULL,
-        trip_id TEXT NOT NULL,
-        occurred_at TEXT NOT NULL,
-        json TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS tracking_order ON tracking (account_id, trip_id, occurred_at);
-    `);
+    await migrate(db);
     return db;
   })();
   return opened;
@@ -189,6 +215,10 @@ export const sqliteStore: OfflineStore = {
     await db.withTransactionAsync(async () => {
       for (const id of ids) await db.runAsync('DELETE FROM tracking WHERE client_event_id = ?', id);
     });
+  },
+  async deleteSamplesBefore(accountId, isoTime) {
+    const db = await open();
+    await db.runAsync('DELETE FROM tracking WHERE account_id = ? AND occurred_at < ?', accountId, isoTime);
   },
   async sampleTripIds(accountId) {
     const db = await open();

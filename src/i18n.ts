@@ -173,6 +173,20 @@ const en = {
   signOutAnyway: 'Sign out',
   checkInQueued: 'Checked in on this phone. Waiting to send.',
   localArrivalNote: 'Based on the position saved on this phone.',
+  // Error codes from the server (Problem Details `code`)
+  code_TRIP_STATE_INVALID: 'The trip is not in a state that allows this.',
+  code_PREVIOUS_STOP_INCOMPLETE: 'An earlier stop is not finished yet.',
+  code_STOP_ALREADY_ARRIVED: 'This stop was already checked in.',
+  code_STOP_NOT_ARRIVED: 'Check in at this stop first.',
+  code_POD_REQUIRED: 'Proof of delivery is needed first.',
+  code_POD_NOT_ALLOWED: 'Proof of delivery is not allowed at this stop.',
+  code_POD_ALREADY_CAPTURED: 'Proof was already saved for this stop.',
+  code_GEOFENCE_REQUIRED: 'You were not at the stop. Discard this and check in manually with a reason.',
+  code_VERSION_CONFLICT: 'The trip changed before this could be sent.',
+  code_INVALID_REQUEST: 'The office could not accept this. Check what you entered.',
+  code_ACCESS_DENIED: 'You cannot do this.',
+  code_RESOURCE_NOT_FOUND: 'This trip is no longer available to you.',
+  code_BUSINESS_RULE_REJECTED: 'The office rules do not allow this right now.',
   // Errors
   errorRequired: 'Please fill in every field.',
   errorCompanyNotFound: 'Company code not found.',
@@ -347,6 +361,19 @@ const th: Record<MessageKey, string> = {
   signOutAnyway: 'ออกจากระบบ',
   checkInQueued: 'เช็กอินในเครื่องแล้ว รอส่ง',
   localArrivalNote: 'ใช้ตำแหน่งที่บันทึกไว้ในเครื่อง',
+  code_TRIP_STATE_INVALID: 'สถานะของงานไม่อนุญาตให้ทำรายการนี้',
+  code_PREVIOUS_STOP_INCOMPLETE: 'จุดก่อนหน้ายังไม่เสร็จ',
+  code_STOP_ALREADY_ARRIVED: 'จุดนี้เช็กอินไปแล้ว',
+  code_STOP_NOT_ARRIVED: 'ต้องเช็กอินที่จุดนี้ก่อน',
+  code_POD_REQUIRED: 'ต้องมีหลักฐานการส่งก่อน',
+  code_POD_NOT_ALLOWED: 'จุดนี้ไม่ต้องมีหลักฐานการส่ง',
+  code_POD_ALREADY_CAPTURED: 'จุดนี้บันทึกหลักฐานการส่งแล้ว',
+  code_GEOFENCE_REQUIRED: 'คุณไม่ได้อยู่ที่จุด ให้ทิ้งรายการนี้แล้วเช็กอินด้วยตนเองพร้อมเหตุผล',
+  code_VERSION_CONFLICT: 'งานมีการเปลี่ยนแปลงก่อนที่จะส่งรายการนี้ได้',
+  code_INVALID_REQUEST: 'สำนักงานรับรายการนี้ไม่ได้ กรุณาตรวจสิ่งที่กรอก',
+  code_ACCESS_DENIED: 'คุณไม่มีสิทธิ์ทำรายการนี้',
+  code_RESOURCE_NOT_FOUND: 'งานนี้ไม่ได้อยู่ในความรับผิดชอบของคุณแล้ว',
+  code_BUSINESS_RULE_REJECTED: 'กฎของสำนักงานไม่อนุญาตในตอนนี้',
   errorRequired: 'กรุณากรอกข้อมูลให้ครบ',
   errorCompanyNotFound: 'ไม่พบรหัสบริษัทนี้',
   errorTooMany: 'ลองหลายครั้งเกินไป กรุณารอสักครู่',
@@ -386,4 +413,11 @@ export function t(key: MessageKey, params?: Record<string, string | number>): st
 export function tCode(prefix: string, code: string): string {
   const key = `${prefix}${code}` as MessageKey;
   return key in en ? t(key) : code;
+}
+
+/** The message for a server error code, or null when the app has no words for it (then the caller decides). */
+export function messageForCode(code: string | null | undefined): string | null {
+  if (!code) return null;
+  const key = `code_${code}` as MessageKey;
+  return key in en ? t(key) : null;
 }

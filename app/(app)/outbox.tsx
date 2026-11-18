@@ -2,7 +2,7 @@ import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { formatDateTime } from '../../src/dates';
 import { useAccountId } from '../../src/hooks/useTrips';
-import { t, tCode } from '../../src/i18n';
+import { messageForCode, t, tCode } from '../../src/i18n';
 import { offline, useOutboxRows } from '../../src/offline/manager';
 import type { OutboxRow } from '../../src/offline/types';
 import { useSettings } from '../../src/settings/settings';
@@ -11,8 +11,10 @@ import { Badge, Button, Card, Screen } from '../../src/ui';
 
 function reason(row: OutboxRow): string | null {
   if (!row.error) return null;
+  // Branch on the code, never on the English text. Unknown codes fall back to a general sentence plus the detail.
+  const known = messageForCode(row.error.code);
+  if (known) return known;
   if (row.error.code === 'STALE') return t('failedSTALE');
-  // Backend text is English; show it only as detail under our own sentence.
   return row.error.detail ? `${t('failedRejected')} ${row.error.detail}` : t('failedRejected');
 }
 

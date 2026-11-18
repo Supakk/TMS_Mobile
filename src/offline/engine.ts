@@ -48,7 +48,7 @@ export function createEngine(
         await patch(row.id, { status: 'pending' });
         return 'auth';
       case 'rejected':
-        await fail(row, `HTTP_${failure.status}`, failure.detail);
+        await fail(row, failure.code ?? `HTTP_${failure.status}`, failure.detail);
         return 'failed';
       case 'server':
         if (row.attempts + 1 >= MAX_SERVER_ATTEMPTS) {
@@ -199,11 +199,23 @@ export function createEngine(
     }
   }
 
+  // A trip that refuses its GPS for a reason that is not a bad point (no right to it, gone, in the wrong state)
+  // is held back with a growing wait, so a woken engine does not ask again every time. Its samples are kept.
+  const held = new Map<string, { until: number; strikes: number }>();
+  const HOLD_MAX_MS = 60 * 60 * 1000;
+  const SAMPLE_KEEP_MS = 3 * 24 * 60 * 60 * 1000;
+
+  const hold = (tripId: string) => {
+    const strikes = (held.get(tripId)?.strikes ?? 0) + 1;
+    held.set(tripId, { until: now() + Math.min(HOLD_MAX_MS, 30_000 * 2 ** (strikes - 1)), strikes });
+  };
+
   /**
-   * Sends one batch. The server refuses a whole batch for one bad point (an implausible jump), so a refused batch is
-   * split in halves until the bad point stands alone; only that point is dropped, the good ones are kept and sent.
+   * Sends one batch. Only a 400 INVALID_REQUEST means "one point is bad": that batch is split until the point stands
+   * alone and only it is dropped. Any other refusal (403, 404, 409, 412, 422...) is about the trip, not a point: nothing
+   * is deleted, the trip is held back instead.
    */
-  async function sendBatch(tripId: string, batch: TrackingSample[]): Promise<Failure | null> {
+  async function sendBatch(tripId: string, batch: TrackingSample[]): Promise<Failure | 'held' | null> {
     try {
       await api.sendTracking(
         tripId,
@@ -211,7 +223,9 @@ export function createEngine(
       );
     } catch (error) {
       const failure = classify(error);
-      if (failure.type !== 'rejected' || failure.status === 429) return failure;
+      if (failure.type === 'stale') return 'held';
+      if (failure.type !== 'rejected') return failure;
+      if (failure.status !== 400 || failure.code !== 'INVALID_REQUEST') return 'held';
       if (batch.length === 1) {
         await store.deleteSamples([batch[0].clientEventId]);
         return null;
@@ -229,12 +243,22 @@ export function createEngine(
 
   /** Sends the stored GPS samples, oldest first. Returns the failure that stopped it, if any. */
   async function flushTracking(accountId: string): Promise<Failure | null> {
+    await store.deleteSamplesBefore(accountId, new Date(now() - SAMPLE_KEEP_MS).toISOString());
     for (const tripId of await store.sampleTripIds(accountId)) {
+      if ((held.get(tripId)?.until ?? 0) > now()) continue;
       for (;;) {
         const batch = await store.listSamples(accountId, tripId, TRACKING_BATCH);
-        if (batch.length === 0) break;
-        const failure = await sendBatch(tripId, batch);
-        if (failure) return failure;
+        if (batch.length === 0) {
+          held.delete(tripId);
+          break;
+        }
+        const result = await sendBatch(tripId, batch);
+        if (result === 'held') {
+          hold(tripId);
+          break;
+        }
+        if (result) return result;
+        held.delete(tripId);
       }
     }
     return null;

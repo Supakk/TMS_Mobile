@@ -4,6 +4,8 @@ import { API_BASE_URL, REQUEST_TIMEOUT_MS } from '../config';
 export type ProblemDetails = {
   title?: string;
   detail?: string;
+  /** Stable machine-readable code. Branch on this, never on the English text. */
+  code?: string;
   status?: number;
   errors?: Record<string, string[]>;
 };

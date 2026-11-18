@@ -46,6 +46,8 @@ export interface OfflineStore {
   /** Oldest first. */
   listSamples(accountId: string, tripId: string, limit: number): Promise<TrackingSample[]>;
   deleteSamples(clientEventIds: string[]): Promise<void>;
+  /** Drops samples recorded before `isoTime`: a trip that never accepts them must not fill the phone. */
+  deleteSamplesBefore(accountId: string, isoTime: string): Promise<void>;
   sampleTripIds(accountId: string): Promise<string[]>;
 }
 
@@ -86,7 +88,7 @@ export type Failure =
   | { type: 'network' } // time-out or no connection: the request may or may not have arrived
   | { type: 'auth' } // 401
   | { type: 'stale' } // 412 or 428
-  | { type: 'rejected'; status: number; detail: string | null } // another 4xx: will fail again
+  | { type: 'rejected'; status: number; code: string | null; detail: string | null } // another 4xx: will fail again
   | { type: 'server'; status: number }; // 5xx: may pass later
 
 export type RunResult = 'idle' | 'offline' | 'auth' | 'waiting';
