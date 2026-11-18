@@ -17,7 +17,9 @@ Built with Expo (SDK 58), React Native, TypeScript, Expo Router and TanStack Que
 
 - **Works without a signal.** Every step the driver takes (accept, start, check in, proof of delivery with photo, check out, complete, problems, notes) is saved on the phone first and sent when the connection returns. See "Offline" below.
 
-Not built yet: background location, SignalR live updates, push notifications (FCM), signature capture, barcode scanning, iOS testing. See the roadmap below.
+- Live updates: a SignalR connection to `/hubs/tracking` (derived from the API address, or `EXPO_PUBLIC_HUB_URL`) while the app is in front. `TripUpdated` and a reconnect only make the app read `/me/sync` and the trips again; nothing in an event is trusted as data, because the backend keeps events in memory and never replays what a phone missed offline.
+
+Not built yet: background location, push notifications (FCM), signature capture, barcode scanning, iOS testing. See the roadmap below.
 
 ## Run it
 
@@ -99,7 +101,7 @@ Known limits: problem reports and notes have no idempotency key on the backend, 
 ## Roadmap
 
 1. Background location (GPS samples are already stored durably).
-2. Barcode scanning of loads, queued the same way.
-3. SignalR (`/hubs/tracking`) with `/me/sync` as the fallback.
+2. Barcode scanning, once its contract is decided.
+3. Full-loop test against the real backend (company, sign-in, sync, offline, check-in, proof, complete), then background location for an active trip on a development build and a real device.
 4. Push notifications and hardening.
 5. iOS.

@@ -6,6 +6,7 @@ import { registerDevice } from '../../src/api/trips';
 import { useSession } from '../../src/auth/session';
 import { getDeviceKey, platform } from '../../src/device';
 import { useOfflineBridge } from '../../src/hooks/useTrips';
+import { useRealtime } from '../../src/realtime/useRealtime';
 import { t } from '../../src/i18n';
 import { offline } from '../../src/offline/manager';
 import { colors } from '../../src/theme';
@@ -17,6 +18,7 @@ export default function AppLayout() {
   const accountId = session?.account.id;
 
   useOfflineBridge(accountId);
+  useRealtime(accountId, token);
 
   // Start the sender for this driver. Work queued earlier by the same driver resumes here; work queued by
   // another driver who used this phone is never sent, and the driver is asked what to do with it.
