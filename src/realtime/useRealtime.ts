@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { AppState } from 'react-native';
 
-import { API_BASE_URL, HUB_URL } from '../config';
+import { API_BASE_URL, HUB_URL, MOCK } from '../config';
 import { createCoalescer, hubUrlFrom, reconnectDelayMs } from './signals';
 
 /**
@@ -16,7 +16,7 @@ export function useRealtime(accountId: string | undefined, token: string | undef
   const client = useQueryClient();
 
   useEffect(() => {
-    if (!accountId || !token) return;
+    if (!accountId || !token || MOCK) return; // there is no hub in mock mode
 
     const refresh = createCoalescer(() => {
       void client.invalidateQueries({ queryKey: ['sync', accountId] });

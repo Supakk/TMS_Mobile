@@ -1,4 +1,5 @@
-import { API_BASE_URL, REQUEST_TIMEOUT_MS } from '../config';
+import { API_BASE_URL, MOCK, READ_TIMEOUT_MS, REQUEST_TIMEOUT_MS } from '../config';
+import { handleMock, isMockOffline } from '../mock/server';
 
 /** RFC 9457 problem details as the backend returns them. */
 export type ProblemDetails = {
@@ -64,8 +65,11 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   if (options.version) headers['If-Match'] = options.version;
   if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;
 
+  if (MOCK) return mockRequest<T>(path, options, requestId);
+
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const isRead = (options.method ?? 'GET') === 'GET';
+  const timer = setTimeout(() => controller.abort(), isRead ? READ_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
@@ -94,4 +98,23 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   const etag = response.headers.get('ETag');
   if (response.status === 204) return { data: undefined as T, etag };
   return { data: (await response.json()) as T, etag };
+}
+
+/** Mock mode: the same outcomes the real call gives (data, ApiError), from memory, after a short delay like a network. */
+async function mockRequest<T>(path: string, options: RequestOptions, requestId: string): Promise<{ data: T; etag: string | null }> {
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  if (isMockOffline()) throw new UnknownOutcomeError(requestId); // the settings switch: pretend there is no signal
+  const reply = handleMock({
+    method: options.method ?? 'GET',
+    path,
+    body: options.body,
+    token: options.token ?? null,
+    ifMatch: options.version ?? null,
+    idempotencyKey: options.idempotencyKey ?? null,
+  });
+  if (reply.status >= 400) {
+    if (reply.status === 401 && options.token) onUnauthorized?.(options.token);
+    throw new ApiError(reply.status, reply.body as ProblemDetails, requestId);
+  }
+  return { data: reply.body as T, etag: reply.etag ?? null };
 }
