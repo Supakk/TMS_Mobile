@@ -28,3 +28,12 @@ export function formatDateTime(iso: string | null | undefined, era: Era): string
   if (!iso || !parts(iso)) return '-';
   return `${formatDate(iso, era)} ${formatTime(iso)}`;
 }
+
+/** "20/11/2026" for one day, "20/11/2026 - 21/11/2026" when the end is another day. */
+export function formatDateRange(from: string | null | undefined, to: string | null | undefined, era: Era): string {
+  const a = formatDate(from, era);
+  const b = formatDate(to, era);
+  if (b === '-' || a === b) return a;
+  if (a === '-') return b;
+  return `${a} - ${b}`;
+}

@@ -8,6 +8,7 @@ import type { Trip } from '../domain/trip';
 import { newKey } from '../device';
 import { makeApi } from './api';
 import { createEngine } from './engine';
+import { rowsSignature, shouldRunPass } from './signature';
 import { clearAccount, clearSnapshots, countSamples, readMeta, sqliteStore, writeMeta } from './sqliteStore';
 import type { OutboxRow, TrackingSample } from './types';
 
@@ -24,6 +25,8 @@ type Listener = () => void;
 class OfflineManager {
   private ctx: Context | null = null;
   private rows: OutboxRow[] = [];
+  private rowsSignature = '';
+  private lastPassAt = 0;
   private samples = 0;
   private listeners = new Set<Listener>();
   private engine: ReturnType<typeof createEngine> | null = null;
@@ -48,9 +51,15 @@ class OfflineManager {
     for (const listener of this.listeners) listener();
   }
 
+  /** Reads the outbox again. Screens are told only when something they show has changed, so an idle tick redraws nothing. */
   async refresh() {
-    this.rows = await sqliteStore.listRows();
-    this.samples = this.ctx ? await countSamples(this.ctx.accountId) : 0;
+    const rows = await sqliteStore.listRows();
+    const samples = this.ctx ? await countSamples(this.ctx.accountId) : 0;
+    const signature = rowsSignature(rows);
+    if (signature === this.rowsSignature && samples === this.samples) return;
+    this.rows = rows;
+    this.rowsSignature = signature;
+    this.samples = samples;
     this.emit();
   }
 
@@ -100,6 +109,9 @@ class OfflineManager {
       this.again = true;
       return;
     }
+    // Nothing to send and a pass ran recently: do nothing (saves the battery; the next real change calls kick() again).
+    if (!shouldRunPass(this.rows, this.ctx.accountId, this.samples, this.lastPassAt, Date.now())) return;
+    this.lastPassAt = Date.now();
     this.running = true;
     try {
       do {
@@ -145,7 +157,9 @@ class OfflineManager {
 
   async addSamples(samples: TrackingSample[]) {
     await sqliteStore.addSamples(samples);
-    this.samples = this.ctx ? await countSamples(this.ctx.accountId) : 0;
+    const count = this.ctx ? await countSamples(this.ctx.accountId) : 0;
+    if (count === this.samples) return;
+    this.samples = count;
     this.emit();
   }
 
