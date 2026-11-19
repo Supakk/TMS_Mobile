@@ -21,6 +21,10 @@ Built with Expo (SDK 58), React Native, TypeScript, Expo Router and TanStack Que
 
 Not built yet: background location, push notifications (FCM), signature capture, barcode scanning, iOS testing. See the roadmap below.
 
+## Try it without a backend (mock mode)
+
+`npm run mock` starts Expo with `EXPO_PUBLIC_MOCK=1`: every request is answered from memory by `src/mock/server.ts`, with the same shapes, version checks (412), idempotency keys and error codes as the API. Sign in with company code `DEMO`, any email and password `demo1234`. Three trips are ready: one to accept and start, one on the road with a stop waiting for proof, one planned for tomorrow. The data resets when the app restarts. There is no live-update hub in this mode, and arrival status always says the vehicle is at the stop (use "manual check-in" paths by editing the mock if you need the refusal). Never ship a build made with this flag.
+
 ## Run it
 
 ```bash
@@ -89,6 +93,15 @@ The sender (`src/offline/engine.ts`) runs when a row is made, when the connectio
 - Another driver's rows are never sent under this driver's name; they are offered for discard. Their saved trips are cleared when a different driver signs in.
 
 Known limits: problem reports and notes have no idempotency key on the backend, so a lost answer followed by a retry can send one twice. Tokens are never stored in SQLite (secure storage only).
+
+## Road route on the map (needs the backend)
+
+The trip screen draws the stops on a map. The line between them is a dashed straight line until the backend sends the road route. The app reads an optional `routeGeometry` on the trip (see `src/domain/route.ts`):
+
+- a string: an encoded polyline, precision 5 (the format Google and OSRM use), or
+- a GeoJSON `LineString`: `{ "type": "LineString", "coordinates": [[longitude, latitude], ...] }`
+
+It should cover the whole trip, from the first stop to the last, in driving order. The route is saved with the trip, so it also shows without a signal. Nothing is sent to a routing service from the phone.
 
 ## Rules the app follows
 

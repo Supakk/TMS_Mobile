@@ -1,7 +1,10 @@
 import { useRouter } from 'expo-router';
-import { Alert, ScrollView, StyleSheet, Text } from 'react-native';
+import { useState } from 'react';
+import { Alert, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { useSession } from '../../../src/auth/session';
+import { MOCK } from '../../../src/config';
+import { isMockOffline, setMockOffline } from '../../../src/mock/server';
 import { useOutboxSummary } from '../../../src/hooks/useTrips';
 import { t } from '../../../src/i18n';
 import { useSettings, type EraSetting } from '../../../src/settings/settings';
@@ -15,6 +18,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { waiting, failed, samples } = useOutboxSummary();
   const unsent = waiting + failed;
+  const [noSignal, setNoSignal] = useState(isMockOffline());
 
   // Signing out keeps the unsent work on the phone, but the driver should know it has not reached the office.
   const confirmSignOut = () => {
@@ -63,6 +67,22 @@ export default function SettingsScreen() {
           <Row label={t('unsentWork')} value={String(unsent + samples)} />
         </Card>
 
+        {MOCK ? (
+          <Card>
+            <View style={styles.switchRow}>
+              <Text style={styles.switchLabel}>{t('mockOffline')}</Text>
+              <Switch
+                value={noSignal}
+                onValueChange={(value) => {
+                  setMockOffline(value);
+                  setNoSignal(value);
+                }}
+                trackColor={{ true: colors.accent }}
+              />
+            </View>
+          </Card>
+        ) : null}
+
         <Button title={t('signOut')} variant="secondary" onPress={confirmSignOut} />
       </ScrollView>
     </Screen>
@@ -74,4 +94,6 @@ const styles = StyleSheet.create({
   content: { padding: spacing.lg, gap: spacing.md },
   title: { color: colors.text, fontSize: 30, fontWeight: '700' },
   heading: { color: colors.text, fontSize: 18, fontWeight: '700' },
+  switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
+  switchLabel: { color: colors.text, fontSize: 16, flex: 1 },
 });

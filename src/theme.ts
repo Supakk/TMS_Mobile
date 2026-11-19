@@ -13,11 +13,19 @@ export const colors = {
   border: 'rgba(22, 24, 29, 0.14)',
   hairline: 'rgba(22, 24, 29, 0.08)',
   card: '#FCFCFD',
+  /** A grey card on the white sheet of the home page. */
+  cardMuted: '#F2F3F6',
   cardBorder: '#FFFFFF',
   field: 'rgba(255, 255, 255, 0.92)',
   error: '#991B1B',
   glowPink: '236, 72, 153',
   glowViolet: '168, 85, 247',
+  /** The load that needs an answer: the accent pink into a deep violet, diagonal. */
+  heroFrom: '#B0305F',
+  heroTo: '#5E3A9E',
+  onHero: '#FFFFFF',
+  onHeroMuted: 'rgba(255, 255, 255, 0.82)',
+  trackBg: 'rgba(22, 24, 29, 0.07)',
 };
 
 export const spacing = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 };

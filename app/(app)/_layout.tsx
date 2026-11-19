@@ -58,6 +58,7 @@ export default function AppLayout() {
         headerTitleStyle: { color: colors.text },
         contentStyle: { backgroundColor: colors.page },
         headerBackButtonDisplayMode: 'minimal',
+        animation: 'slide_from_right',
       }}
     >
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
