@@ -1,4 +1,4 @@
-import { canAcknowledge, currentStop, isStopOpen, stopActions, stopWord, tripStep, type Stop, type Trip } from '../src/domain/trip';
+import { canAcknowledge, currentStop, isStopOpen, stopActions, stopWord, tripBucket, tripStep, type Stop, type Trip } from '../src/domain/trip';
 
 const stop = (sequence: number, patch: Partial<Stop> = {}): Stop => ({
   id: `s${sequence}`,
@@ -107,5 +107,27 @@ describe('words and acknowledgement', () => {
     expect(canAcknowledge({ status: 'DISPATCHED' }, false)).toBe(true);
     expect(canAcknowledge({ status: 'DISPATCHED' }, true)).toBe(false);
     expect(canAcknowledge({ status: 'IN_TRANSIT' }, false)).toBe(false);
+  });
+});
+
+describe('tripBucket', () => {
+  it('puts a trip that still waits for an answer in pending', () => {
+    expect(tripBucket('DISPATCHED', false)).toBe('PENDING');
+    expect(tripBucket('PLANNED', false)).toBe('PENDING');
+  });
+
+  it('puts an answered trip that has not started in accepted', () => {
+    expect(tripBucket('DISPATCHED', true)).toBe('ACCEPTED');
+    expect(tripBucket('PLANNED', true)).toBe('ACCEPTED');
+  });
+
+  it('puts a trip on the road in transit whether or not it was answered', () => {
+    expect(tripBucket('IN_TRANSIT', true)).toBe('IN_TRANSIT');
+    expect(tripBucket('IN_TRANSIT', false)).toBe('IN_TRANSIT');
+  });
+
+  it('puts finished and cancelled trips in done', () => {
+    expect(tripBucket('DELIVERED', true)).toBe('DONE');
+    expect(tripBucket('CANCELLED', false)).toBe('DONE');
   });
 });

@@ -1,5 +1,7 @@
 // Trip rules as pure functions (a port of the web app's execution/rules.ts). No React, no network.
 
+import type { RouteGeometry } from './route';
+
 export type TripStatus = 'PLANNED' | 'DISPATCHED' | 'IN_TRANSIT' | 'DELIVERED' | 'CANCELLED';
 export type StopStatus = 'PLANNED' | 'ARRIVED' | 'DELIVERED' | 'DEPARTED';
 export type PodStatus = 'PENDING' | 'CAPTURED';
@@ -40,6 +42,8 @@ export type Trip = {
   cancelReason: string | null;
   loadIds: string[];
   stops: Stop[];
+  /** The road route, when the backend sends one (see route.ts). Without it the map joins the stops with a straight line. */
+  routeGeometry?: RouteGeometry | null;
   version: string;
 };
 
@@ -105,4 +109,16 @@ export function stopWord(stop: Stop): StopWord {
 /** A trip can be accepted or rejected only while it waits to start and has not been answered. */
 export function canAcknowledge(trip: { status: TripStatus }, acknowledged: boolean): boolean {
   return !acknowledged && (trip.status === 'PLANNED' || trip.status === 'DISPATCHED');
+}
+
+export type TripBucket = 'PENDING' | 'ACCEPTED' | 'IN_TRANSIT' | 'DONE';
+
+/**
+ * Where a trip is shown on the home page. A trip that waits for the driver's answer is "pending" (a banner);
+ * one answered but not started is "accepted"; finished and cancelled trips are "done".
+ */
+export function tripBucket(status: TripStatus, acknowledged: boolean): TripBucket {
+  if (status === 'IN_TRANSIT') return 'IN_TRANSIT';
+  if (status === 'DELIVERED' || status === 'CANCELLED') return 'DONE';
+  return acknowledged ? 'ACCEPTED' : 'PENDING';
 }
