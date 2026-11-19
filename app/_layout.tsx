@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { AppState, Platform } from 'react-native';
 
+import '../src/location/tracking'; // defines the background location task before anything renders
 import { SessionProvider, useSession } from '../src/auth/session';
 import { SettingsProvider, useSettings } from '../src/settings/settings';
 import { colors } from '../src/theme';
